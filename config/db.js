@@ -27,8 +27,8 @@ const initializeAdminAccount = async () => {
 
     const admin = new User({
       username: 'admin',
-      email: 'admin@example.com',
-      password: 'admin123', 
+      email: 'admin@neplearns.com',
+      password: 'Nep@learns@@9800!12', 
       role: 'Admin',
       isApproved: true,
     });
