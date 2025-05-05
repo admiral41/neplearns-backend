@@ -1,36 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const { uploadMaterial } = require('../middleware/uploadMiddleware');
+const { uploadMaterial } = require('../middleware/uploadFile');
 
-// Teacher role and approval check middleware
-router.use((req, res, next) => {
-    if (req.user.role !== 'Teacher' || !req.user.isApproved) {
-        return res.status(403).json({ message: 'Teacher access required' });
+// Unified Upload Route
+router.post('/', uploadMaterial.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
-    next();
-});
 
-// Image Upload
-// Update the response links
-router.post('/image', uploadMaterial.single('picture'), (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Upload failed' });
-    const link = `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/materials/${req.file.filename}`;
-    res.json({ link });
-});
+    const fileName = req.file.filename;
+    const link = `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/${fileName}`;
 
-
-// Video Upload
-router.post('/video', uploadMaterial.single('video'), (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Upload failed' });
-    const link = `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/materials/${req.file.filename}`;
-    res.json({ link });
-});
-
-// File Upload
-router.post('/file', uploadMaterial.single('file'), (req, res) => {
-    if (!req.file) return res.status(400).json({ message: 'Upload failed' });
-    const link = `${process.env.BACKEND_URL || 'http://localhost:5000'}/uploads/materials/${req.file.filename}`;
-    res.json({ link });
+    return res.status(200).json({
+        success: true,
+        message: 'File uploaded successfully',
+        fileName,
+        link,
+    });
 });
 
 module.exports = router;

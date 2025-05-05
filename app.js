@@ -13,7 +13,7 @@ connectDB();
 
 // Middleware
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin:['https://neplearns.com','https://www.neplearns.com'],
   credentials: true,
 }));
 app.use(express.json());
@@ -32,7 +32,7 @@ app.use('/uploads/files', express.static(path.join(__dirname, 'uploads/files')))
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/courses', require('./routes/teacherRoutes'));
 app.use('/api/lessons', require('./routes/lessonRoutes'));
-app.use('/api/upload', require('./routes/uploadRoutes'));
+app.use('/upload', require('./routes/uploadRoutes'));
 app.use('/api/assignments', require('./routes/assignmentRoutes'));
 app.use('/api/quizzes', require('./routes/quizRoutes'));
 app.use('/api/', require('./routes/courseRoutes'));
