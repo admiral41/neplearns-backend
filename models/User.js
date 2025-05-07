@@ -8,7 +8,14 @@ const userSchema = new mongoose.Schema({
   role: { type: String, enum: ['Admin', 'Teacher', 'Student'], required: true },
   profilePicture: { type: String, default: null },
   isApproved: { type: Boolean, default: false },
-  enrolledCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }],
+  enrolledCourses: [{
+    course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course' },
+    enrolledAt: { type: Date, default: Date.now },
+    status: {
+      type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending', updatedAt: { type: Date }
+    }
+  }],
+  teachingCourses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Course' }]
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {

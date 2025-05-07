@@ -1,8 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { protect } = require('../middleware/authMiddleware');
-const studentController = require('../controllers/studentController');
+const { protect, restrictTo } = require('../middleware/authMiddleware');
+const {
+  applyForCourse,
+  getMyCourses,
+  getCourseDetails,
+} = require('../controllers/studentController');
 
+// Protect all routes
 router.use(protect);
 router.use((req, res, next) => {
   if (req.user.role !== 'Student') {
@@ -11,10 +16,10 @@ router.use((req, res, next) => {
   next();
 });
 
-router.post('/courses/:id/enroll', studentController.enrollCourse);
-router.get('/my-courses', studentController.getMyCourses);
-router.post('/assignments/:id/submit', studentController.submitAssignment);
-router.post('/quizzes/:id/attempt', studentController.attemptQuiz);
-router.post('/courses/:id/review', studentController.submitReview);
+// Enrollment routes
+router.post('/courses/:courseId/apply', applyForCourse);
+router.get('/courses/my-courses', getMyCourses);
+router.get('/courses/:courseId', getCourseDetails);
+
 
 module.exports = router;

@@ -44,7 +44,7 @@ exports.getAllCourses = async (req, res, next) => {
 exports.getCourseBySlug = async (req, res, next) => {
   try {
     const course = await Course.findOne({ slug: req.params.slug })
-      .populate('teacher', 'firstName lastName profilePicture')
+      .populate('teacher', 'username profilePicture')
       .populate({
         path: 'lessons',
         select: 'title description'

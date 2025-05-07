@@ -1,104 +1,125 @@
+const Course = require('../models/Courses');
+const User = require('../models/User');
 const { createError } = require('http-errors');
-const Course = require('../models/Course');
-const Assignment = require('../models/Assignment');
-const Quiz = require('../models/Quiz');
 
-exports.enrollCourse = async (req, res, next) => {
+// Apply for course enrollment
+const applyForCourse = async (req, res, next) => {
   try {
-    const course = await Course.findById(req.params.id);
-    if (!course) throw createError.NotFound('Course not found');
-
-    if (course.enrolledStudents.includes(req.user.id)) {
-      throw createError.Conflict('Already enrolled in this course');
-    }
-
-    if (!course.enrollmentRequests.includes(req.user.id)) {
-      course.enrollmentRequests.push(req.user.id);
-      await course.save();
-    }
-
-    res.json({ 
-      success: true, 
-      message: 'Enrollment request submitted. Waiting for teacher approval'
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-exports.getMyCourses = async (req, res, next) => {
-  try {
-    const courses = await Course.find({
-      $or: [
-        { enrolledStudents: req.user.id },
-        { enrollmentRequests: req.user.id }
-      ]
-    }).populate('teacher', 'username');
-
-    res.json({ success: true, data: courses });
-  } catch (error) {
-    next(error);
-  }
-};
-
-exports.submitAssignment = async (req, res, next) => {
-  try {
-    const assignment = await Assignment.findById(req.params.id);
-    if (!assignment) throw createError.NotFound('Assignment not found');
-
-    const course = await Course.findOne({
-      _id: assignment.course,
-      enrolledStudents: req.user.id
-    });
-    if (!course) throw createError.Forbidden('Not enrolled in this course');
-
-    if (new Date() > assignment.dueDate) {
-      throw createError.Forbidden('Submission deadline has passed');
-    }
-
-    assignment.submissions.push({
-      student: req.user.id,
-      file: req.file.path,
-      submissionDate: new Date()
-    });
-
-    await assignment.save();
-    res.json({ success: true, data: assignment });
-  } catch (error) {
-    next(error);
-  }
-};
-
-exports.attemptQuiz = async (req, res, next) => {
-  try {
-    const quiz = await Quiz.findById(req.params.id)
-      .populate('lesson')
-      .populate('course');
+    const { courseId } = req.params;
     
-    if (!quiz) throw createError.NotFound('Quiz not found');
+    // Check if course exists
+    const course = await Course.findById(courseId);
+    if (!course) {
+      throw createError.NotFound('Course not found');
+    }
 
-    const course = await Course.findOne({
-      _id: quiz.lesson.course,
-      enrolledStudents: req.user.id
+    // Check if student is already enrolled or has pending request
+    const isEnrolled = course.enrolledStudents.some(enrollment => 
+      enrollment.student.toString() === req.user.id
+    );
+    
+    const hasPendingRequest = course.enrollmentRequests.some(request => 
+      request.student.toString() === req.user.id && request.status === 'pending'
+    );
+
+    if (isEnrolled) {
+      throw createError.Conflict('You are already enrolled in this course');
+    }
+
+    if (hasPendingRequest) {
+      throw createError.Conflict('You already have a pending enrollment request for this course');
+    }
+
+    // Add enrollment request
+    course.enrollmentRequests.push({
+      student: req.user.id,
+      status: 'pending'
     });
-    if (!course) throw createError.Forbidden('Not enrolled in this course');
+    await course.save();
 
-    let score = 0;
-    const results = quiz.questions.map((question, index) => {
-      const isCorrect = question.correctAnswer === req.body.answers[index];
-      if (isCorrect) score++;
-      return { question: question.question, correct: isCorrect };
+    // Add to user's enrolledCourses with pending status
+    await User.findByIdAndUpdate(req.user.id, {
+      $addToSet: {
+        enrolledCourses: {
+          course: courseId,
+          status: 'pending'
+        }
+      }
     });
 
     res.json({
       success: true,
+      message: 'Enrollment request submitted successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get student's enrolled courses
+const getMyCourses = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id)
+      .populate({
+        path: 'enrolledCourses.course',
+        select: 'title description price image slug teacher',
+        populate: {
+          path: 'teacher',
+          select: 'username profilePicture'
+        }
+      });
+
+    const approvedCourses = user.enrolledCourses.filter(
+      ec => ec.status === 'approved'
+    ).map(ec => ec.course);
+
+    const pendingCourses = user.enrolledCourses.filter(
+      ec => ec.status === 'pending'
+    ).map(ec => ec.course);
+
+    res.json({
+      success: true,
       data: {
-        score,
-        total: quiz.questions.length,
-        results
+        approvedCourses,
+        pendingCourses
       }
     });
   } catch (error) {
     next(error);
   }
+};
+
+// Get course details with access check
+const getCourseDetails = async (req, res, next) => {
+  try {
+    const { courseId } = req.params;
+    
+    // Check if student is enrolled and approved
+    const user = await User.findOne({
+      _id: req.user.id,
+      'enrolledCourses.course': courseId,
+      'enrolledCourses.status': 'approved'
+    });
+
+    if (!user) {
+      throw createError.Forbidden('You are not enrolled in this course or your enrollment is not approved yet');
+    }
+
+    const course = await Course.findById(courseId)
+      .populate('teacher', 'username profilePicture')
+      .populate('lessons');
+
+    res.json({
+      success: true,
+      data: course
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+module.exports = {
+  applyForCourse,
+  getMyCourses,
+  getCourseDetails
 };

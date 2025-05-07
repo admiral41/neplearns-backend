@@ -8,14 +8,38 @@ const courseSchema = new mongoose.Schema({
   price: { type: Number, required: true },
   slug: { type: String, unique: true },
   tags: [{ type: String }],
-  teacher: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  teacher: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User', 
+    required: true 
+  },
   image: { type: String },
   lessons: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Lesson' }],
   enrollmentRequests: [{
-    student: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' }
+    student: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'User' 
+    },
+    status: { 
+      type: String, 
+      enum: ['pending', 'approved', 'rejected'], 
+      default: 'pending' 
+    },
+    requestedAt: { 
+      type: Date, 
+      default: Date.now 
+    }
   }],
-  enrolledStudents: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
+  enrolledStudents: [{
+    student: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'User' 
+    },
+    enrolledAt: { 
+      type: Date, 
+      default: Date.now 
+    }
+  }]
 }, { timestamps: true });
 
 courseSchema.pre('save', function(next) {

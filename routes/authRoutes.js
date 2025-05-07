@@ -9,7 +9,7 @@ router.post('/register/student', registerStudent);
 router.get('/check', protect, checkAuth);
 
 // Admin protected routes
-router.patch('/approve-teacher/:id',
+router.post('/approve-teacher/:id',
   protect,
   restrictTo('Admin'),
   approveTeacher

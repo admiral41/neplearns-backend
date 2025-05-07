@@ -14,6 +14,7 @@ connectDB();
 // Middleware
 app.use(cors({
   origin:['https://neplearns.com','https://www.neplearns.com'],
+  // origin:true,
   credentials: true,
 }));
 app.use(express.json());
@@ -36,6 +37,7 @@ app.use('/upload', require('./routes/uploadRoutes'));
 app.use('/api/assignments', require('./routes/assignmentRoutes'));
 app.use('/api/quizzes', require('./routes/quizRoutes'));
 app.use('/api/', require('./routes/courseRoutes'));
+app.use('/api/students', require('./routes/studentRoutes'));
 
 app.get('/', (req, res) => res.send('API Running'));
 
