@@ -2,6 +2,8 @@ const User = require('../models/User');
 const { generateToken } = require('../config/config');
 const createError = require('http-errors');
 const Course = require('../models/Courses');
+const sendEmail = require('../middleware/sendEmail');
+const crypto = require('crypto');
 
 const login = async (req, res, next) => {
   try {
@@ -187,6 +189,126 @@ const getAdminStats = async (req, res) => {
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
+const forgotPassword = async (req, res, next) => {
+  const { email } = req.body;
+
+  try {
+    // Always return success to prevent email enumeration
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(200).json({ 
+        success: true,
+        message: 'If an account exists with this email, a reset link has been sent'
+      });
+    }
+
+    const resetToken = user.getResetPasswordToken();
+    await user.save({ validateBeforeSave: false });
+
+    const resetUrl = `${process.env.FRONTEND_URL}/resetpassword/${resetToken}`;
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Reset Request',
+        template: 'resetPassword',
+        data: {
+          name: user.username || 'User',
+          resetLink: resetUrl,
+          expiresIn: '10 minutes'
+        }
+      });
+    } catch (emailError) {
+      console.error('Email send failed:', emailError);
+      // Don't reveal email failure to user
+    }
+
+    return res.status(200).json({ 
+      success: true,
+      message: 'If an account exists with this email, a reset link has been sent'
+    });
+
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    return next(createError.InternalServerError('Password reset process failed'));
+  }
+};
+const resetPassword = async (req, res, next) => {
+  const resetPasswordToken = crypto
+    .createHash('sha256')
+    .update(req.params.resettoken)
+    .digest('hex');
+
+  try {
+    const user = await User.findOne({
+      resetPasswordToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return next(createError.BadRequest('Invalid token or token has expired'));
+    }
+
+    user.password = req.body.password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Changed Successfully',
+        template: 'passwordChanged',
+        data: {
+          name: user.username || 'User'
+        }
+      });
+    } catch (err) {
+      console.error('Confirmation email failed:', err);
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Password updated successfully' 
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+const changePassword = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id).select('+password');
+
+    if (!(await user.matchPassword(req.body.currentPassword))) {
+      return next(createError.Unauthorized('Current password is incorrect'));
+    }
+
+    user.password = req.body.newPassword;
+    await user.save();
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: 'Password Changed Successfully',
+        template: 'passwordChanged',
+        data: {
+          name: user.username || 'User'
+        }
+      });
+    } catch (err) {
+      console.error('Confirmation email failed:', err);
+    }
+
+    res.status(200).json({ 
+      success: true, 
+      message: 'Password changed successfully' 
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   login,
   registerTeacher,
@@ -195,5 +317,8 @@ module.exports = {
   checkAuth,
   getAllTeachers,
   getStudents,
-  getAdminStats
+  getAdminStats,
+  forgotPassword,
+  resetPassword,
+  changePassword
 };

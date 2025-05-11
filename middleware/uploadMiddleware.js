@@ -38,6 +38,7 @@ const fileFilter = (req, file, cb) => {
 const limits = { fileSize: 300 * 1024 * 1024 }; // 300MB
 
 exports.uploadMaterial = multer({ storage: storage('materials'), fileFilter, limits });
+exports.uploadAttachment = multer({ storage: storage('attachments'), fileFilter, limits });
 exports.uploadCourseImage = multer({
   storage: storage('courses'),
   fileFilter: (req, file, cb) => 

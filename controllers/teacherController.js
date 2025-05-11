@@ -49,10 +49,11 @@ const getTeacherCourses = async (req, res, next) => {
     next(error);
   }
 };
+// In your teacherController.js
 const updateCourse = async (req, res, next) => {
   try {
     const course = await Course.findOneAndUpdate(
-      { _id: req.params.id, teacher: req.user.id },
+      { slug: req.params.slug, teacher: req.user.id },
       {
         ...req.body,
         ...(req.body.title && { slug: slugify(req.body.title, { lower: true }) }),
@@ -70,11 +71,34 @@ const updateCourse = async (req, res, next) => {
 
 const deleteCourse = async (req, res, next) => {
   try {
-    const course = await Course.findOneAndDelete({
-      _id: req.params.id,
+    // First find the course to get its ID for cleanup
+    const course = await Course.findOne({
+      slug: req.params.slug,
       teacher: req.user.id
     });
+    
     if (!course) throw createError.NotFound('Course not found');
+
+    // Delete all related lessons, assignments, and quizzes
+    await Lesson.deleteMany({ course: course._id });
+    await Assignment.deleteMany({ course: course._id });
+    await Quiz.deleteMany({ course: course._id });
+
+    // Now delete the course
+    await Course.deleteOne({ _id: course._id });
+
+    // Remove course from teacher's teachingCourses array
+    await User.updateOne(
+      { _id: req.user.id },
+      { $pull: { teachingCourses: course._id } }
+    );
+
+    // Remove course from students' enrolledCourses
+    await User.updateMany(
+      { 'enrolledCourses.course': course._id },
+      { $pull: { enrolledCourses: { course: course._id } } }
+    );
+
     res.json({ success: true, data: null });
   } catch (error) {
     next(error);
@@ -140,13 +164,10 @@ const getTeacherCourse = async (req, res, next) => {
       slug: req.params.slug,
       teacher: req.user.id
     })
-    // .populate({
-    //   path: 'lessons',
-    //   populate: [
-    //     { path: 'assignment' },
-    //     { path: 'quiz' }
-    //   ]
-    // })    
+    .populate({
+      path: 'lessons',
+      select: 'title _id' // Only include title and _id for lessons
+    })
     .populate('enrolledStudents', 'name email')
     .populate('enrollmentRequests', 'name email');
 
@@ -394,6 +415,434 @@ const updateEnrollmentStatus = async (req, res, next) => {
     next(error);
   }
 };
+
+// assignment
+// Assignment Controllers
+const createAssignment = async (req, res, next) => {
+  try {
+    const { lessonId } = req.params;
+    const { title, description, instructions, dueDate, points } = req.body;
+
+    const lesson = await Lesson.findById(lessonId).populate('course');
+    if (!lesson) throw createError.NotFound('Lesson not found');
+    
+    // Check if teacher owns the course
+    const course = await Course.findOne({ 
+      _id: lesson.course._id, 
+      teacher: req.user.id 
+    });
+    if (!course) throw createError.Forbidden();
+
+    const attachments = req.files?.map(file => ({
+      path: file.path,
+      originalName: file.originalname
+    })) || [];
+
+    const assignment = await Assignment.create({
+      title,
+      description,
+      instructions,
+      lesson: lessonId,
+      course: lesson.course._id,
+      dueDate,
+      points,
+      createdBy: req.user.id,
+      attachments
+    });
+
+    // Add assignment to lesson
+    lesson.assignments.push(assignment._id);
+    await lesson.save();
+
+    res.status(201).json({ 
+      success: true, 
+      data: assignment 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const updateAssignment = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+    const { title, description, instructions, dueDate, points, isActive } = req.body;
+
+    const assignment = await Assignment.findOneAndUpdate(
+      { 
+        _id: assignmentId, 
+        createdBy: req.user.id 
+      },
+      { 
+        title, 
+        description, 
+        instructions, 
+        dueDate, 
+        points,
+        isActive,
+        ...(req.files && { 
+          attachments: req.files.map(file => ({
+            path: file.path,
+            originalName: file.originalname
+          })) 
+        })
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!assignment) throw createError.NotFound('Assignment not found');
+    res.json({ success: true, data: assignment });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const gradeAssignment = async (req, res, next) => {
+  try {
+    const { assignmentId, submissionId } = req.params;
+    const { grade, feedback } = req.body;
+
+    const assignment = await Assignment.findOne({
+      _id: assignmentId,
+      createdBy: req.user.id
+    });
+    if (!assignment) throw createError.NotFound('Assignment not found');
+
+    const submission = assignment.submissions.id(submissionId);
+    if (!submission) throw createError.NotFound('Submission not found');
+
+    submission.grade = grade;
+    submission.feedback = feedback;
+    submission.gradedAt = new Date();
+    
+    await assignment.save();
+
+    res.json({ 
+      success: true, 
+      data: submission 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getAssignmentSubmissions = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+
+    const assignment = await Assignment.findOne({
+      _id: assignmentId,
+      createdBy: req.user.id
+    }).populate('submissions.student', 'username email profilePicture');
+
+    if (!assignment) throw createError.NotFound('Assignment not found');
+
+    res.json({ 
+      success: true, 
+      count: assignment.submissions.length,
+      data: assignment.submissions 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteAssignment = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+
+    const assignment = await Assignment.findOneAndDelete({
+      _id: assignmentId,
+      createdBy: req.user.id
+    });
+
+    if (!assignment) throw createError.NotFound('Assignment not found');
+
+    // Remove assignment from lesson
+    await Lesson.updateOne(
+      { _id: assignment.lesson },
+      { $pull: { assignments: assignmentId } }
+    );
+
+    res.json({ 
+      success: true, 
+      data: null 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Quiz Controllers
+const createQuiz = async (req, res, next) => {
+  try {
+    const { 
+      title, 
+      description, 
+      questions, 
+      timeLimit, 
+      passingScore, 
+      attemptsAllowed,
+      lesson // lessonId now comes from request body
+    } = req.body;
+
+    console.log("Received lesson ID:", lesson); // Add this for debugging
+
+    const lessonObj = await Lesson.findById(lesson).populate('course');
+    if (!lessonObj) {
+      console.log("Lesson lookup failed for ID:", lesson);
+      throw createError.NotFound('Lesson not found');
+    }
+    
+    // Check if teacher owns the course
+    const course = await Course.findOne({ 
+      _id: lessonObj.course._id, 
+      teacher: req.user.id 
+    });
+    if (!course) {
+      console.log("Course ownership validation failed");
+      throw createError.Forbidden();
+    }
+
+    const quiz = await Quiz.create({
+      title,
+      description,
+      lesson,
+      course: lessonObj.course._id,
+      questions,
+      timeLimit,
+      passingScore,
+      attemptsAllowed,
+      createdBy: req.user.id
+    });
+
+    // Add quiz to lesson
+    lessonObj.quizzes.push(quiz._id);
+    await lessonObj.save();
+
+    res.status(201).json({ 
+      success: true, 
+      data: quiz 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+const updateQuiz = async (req, res, next) => {
+  try {
+    const { quizId } = req.params;
+    const { 
+      title, 
+      description, 
+      questions, 
+      timeLimit, 
+      passingScore, 
+      attemptsAllowed,
+      isActive 
+    } = req.body;
+
+    // Find the quiz first to verify ownership
+    const existingQuiz = await Quiz.findOne({
+      _id: quizId,
+      createdBy: req.user.id
+    });
+    
+    if (!existingQuiz) {
+      throw createError.NotFound('Quiz not found or not authorized');
+    }
+
+    // Prepare update object
+    const updateData = {
+      title: title || existingQuiz.title,
+      description: description || existingQuiz.description,
+      timeLimit: timeLimit || existingQuiz.timeLimit,
+      passingScore: passingScore || existingQuiz.passingScore,
+      attemptsAllowed: attemptsAllowed || existingQuiz.attemptsAllowed,
+      isActive: isActive !== undefined ? isActive : existingQuiz.isActive
+    };
+
+    // Handle questions update if provided
+    if (questions) {
+      try {
+        const parsedQuestions = JSON.parse(questions);
+        
+        if (!Array.isArray(parsedQuestions)) {
+          throw createError.BadRequest('Questions must be an array');
+        }
+
+        updateData.questions = parsedQuestions.map(q => {
+          if (!q.options || !Array.isArray(q.options)) {
+            throw createError.BadRequest('Each question must have an options array');
+          }
+
+          return {
+            question: q.question || 'Untitled Question',
+            options: q.options.map((opt, idx) => ({
+              text: opt.text || `Option ${idx + 1}`,
+              isCorrect: idx === q.correctOption
+            })),
+            explanation: q.explanation || '',
+            points: q.points || 1
+          };
+        });
+      } catch (parseError) {
+        throw createError.BadRequest('Invalid questions format');
+      }
+    }
+
+    const updatedQuiz = await Quiz.findByIdAndUpdate(
+      quizId,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    res.json({ 
+      success: true, 
+      data: updatedQuiz 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getQuizResults = async (req, res, next) => {
+  try {
+    const { quizId } = req.params;
+
+    const quiz = await Quiz.findOne({
+      _id: quizId,
+      createdBy: req.user.id
+    }).populate('submissions.student', 'username email profilePicture');
+
+    if (!quiz) throw createError.NotFound('Quiz not found');
+
+    res.json({ 
+      success: true, 
+      count: quiz.submissions.length,
+      data: quiz.submissions 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const deleteQuiz = async (req, res, next) => {
+  try {
+    const { quizId } = req.params;
+
+    const quiz = await Quiz.findOneAndDelete({
+      _id: quizId,
+      createdBy: req.user.id
+    });
+
+    if (!quiz) throw createError.NotFound('Quiz not found');
+
+    // Remove quiz from lesson
+    await Lesson.updateOne(
+      { _id: quiz.lesson },
+      { $pull: { quizzes: quizId } }
+    );
+
+    res.json({ 
+      success: true, 
+      data: null 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getQuizzesByCourse = async (req, res, next) => {
+  try {
+    const quizzes = await Quiz.find({ 
+      course: req.params.courseId,
+      createdBy: req.user.id
+    })
+    .populate('lesson', 'title')
+    .sort('-createdAt');
+
+    res.json({
+      success: true,
+      count: quizzes.length,
+      data: quizzes
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getAssignmentsByCourse = async (req, res, next) => {
+  try {
+    const assignments = await Assignment.find({ 
+      course: req.params.courseId,
+      createdBy: req.user.id
+    })
+    .populate('lesson', 'title')
+    .sort('-createdAt');
+
+    res.json({
+      success: true,
+      count: assignments.length,
+      data: assignments
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get detailed submission
+const getQuizSubmission = async (req, res, next) => {
+  try {
+    const { quizId, submissionId } = req.params;
+
+    const quiz = await Quiz.findOne({
+      _id: quizId,
+      createdBy: req.user.id
+    }).populate({
+      path: 'submissions.student',
+      select: 'name email profilePicture'
+    });
+
+    if (!quiz) throw createError.NotFound('Quiz not found');
+
+    const submission = quiz.submissions.id(submissionId);
+    if (!submission) throw createError.NotFound('Submission not found');
+
+    // Map questions with student answers
+    const detailedQuestions = quiz.questions.map((question, index) => {
+      const answer = submission.answers.find(ans => 
+        ans.questionId.toString() === question._id.toString()
+      );
+      
+      return {
+        question: question.question,
+        options: question.options,
+        correctOption: question.options.findIndex(opt => opt.isCorrect),
+        selectedOption: answer ? answer.selectedOption : null,
+        isCorrect: answer ? answer.isCorrect : false,
+        explanation: question.explanation,
+        points: question.points
+      };
+    });
+
+    res.json({ 
+      success: true, 
+      data: {
+        quizTitle: quiz.title,
+        student: submission.student,
+        score: submission.score,
+        totalPoints: quiz.questions.reduce((sum, q) => sum + q.points, 0),
+        percentage: (submission.score / quiz.questions.reduce((sum, q) => sum + q.points, 0)) * 100,
+        passed: (submission.score / quiz.questions.reduce((sum, q) => sum + q.points, 0)) * 100 >= quiz.passingScore,
+        submittedAt: submission.submittedAt,
+        attemptNumber: submission.attemptNumber,
+        questions: detailedQuestions
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 module.exports = {
   createCourse,
   getTeacherCourses,
@@ -407,5 +856,17 @@ module.exports = {
   getEnrollmentRequests,
   processEnrollmentRequest,
   getEnrolledStudents,
-  updateEnrollmentStatus
+  updateEnrollmentStatus,
+  createAssignment,
+  updateAssignment,
+  gradeAssignment,
+  getAssignmentSubmissions,
+  deleteAssignment,
+  createQuiz,
+  updateQuiz,
+  getQuizResults,
+  deleteQuiz,
+  getAssignmentsByCourse,
+  getQuizzesByCourse,
+  getQuizSubmission
 };
