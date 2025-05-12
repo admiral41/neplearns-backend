@@ -10,7 +10,8 @@ const {
   takeQuiz,
   submitQuiz,
   getQuizResult,
-  getQuizzesByLesson
+  getQuizzesByLesson,
+  getAssignmentsByLesson
 
 } = require('../controllers/studentController');
 const { uploadAttachment } = require('../middleware/uploadMiddleware');
@@ -31,10 +32,10 @@ router.get('/courses/:courseId', getCourseDetails);
 
 router.post(
   '/assignments/:assignmentId/submit', 
-  uploadAttachment.array('attachments'), 
   submitAssignment
 );
 router.get('/assignments/:assignmentId', getAssignment);
+router.get('/lessons/:lessonId/assignments', getAssignmentsByLesson);
 
 // Quiz routes
 router.get('/quizzes/:quizId', takeQuiz);

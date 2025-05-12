@@ -417,7 +417,6 @@ const updateEnrollmentStatus = async (req, res, next) => {
 };
 
 // assignment
-// Assignment Controllers
 const createAssignment = async (req, res, next) => {
   try {
     const { lessonId } = req.params;
@@ -433,11 +432,6 @@ const createAssignment = async (req, res, next) => {
     });
     if (!course) throw createError.Forbidden();
 
-    const attachments = req.files?.map(file => ({
-      path: file.path,
-      originalName: file.originalname
-    })) || [];
-
     const assignment = await Assignment.create({
       title,
       description,
@@ -446,8 +440,7 @@ const createAssignment = async (req, res, next) => {
       course: lesson.course._id,
       dueDate,
       points,
-      createdBy: req.user.id,
-      attachments
+      createdBy: req.user.id
     });
 
     // Add assignment to lesson
@@ -468,34 +461,39 @@ const updateAssignment = async (req, res, next) => {
     const { assignmentId } = req.params;
     const { title, description, instructions, dueDate, points, isActive } = req.body;
 
+    const updatedFields = {
+      title,
+      description,
+      instructions,
+      dueDate,
+      points,
+      isActive
+    };
+
+    if (req.files && req.files.length > 0) {
+      updatedFields.attachments = req.files.map(file => ({
+        path: file.path,
+        originalName: file.originalname
+      }));
+    }
+
     const assignment = await Assignment.findOneAndUpdate(
-      { 
-        _id: assignmentId, 
-        createdBy: req.user.id 
-      },
-      { 
-        title, 
-        description, 
-        instructions, 
-        dueDate, 
-        points,
-        isActive,
-        ...(req.files && { 
-          attachments: req.files.map(file => ({
-            path: file.path,
-            originalName: file.originalname
-          })) 
-        })
-      },
+      { _id: assignmentId, createdBy: req.user.id },
+      updatedFields,
       { new: true, runValidators: true }
     );
 
-    if (!assignment) throw createError.NotFound('Assignment not found');
-    res.json({ success: true, data: assignment });
+    if (!assignment) {
+      return res.status(404).json({ success: false, message: 'Assignment not found' });
+    }
+
+    res.status(200).json({ success: true, data: assignment });
   } catch (error) {
-    next(error);
+    console.error('Update Assignment Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
 
 const gradeAssignment = async (req, res, next) => {
   try {
@@ -843,6 +841,94 @@ const getQuizSubmission = async (req, res, next) => {
     next(error);
   }
 };
+// Get all assignments for a lesson
+const getAssignmentsByLesson = async (req, res, next) => {
+  try {
+    const { lessonId } = req.params;
+    
+    const lesson = await Lesson.findById(lessonId).populate('course');
+    if (!lesson) throw createError.NotFound('Lesson not found');
+    
+    // Verify teacher owns the course
+    const course = await Course.findOne({
+      _id: lesson.course._id,
+      teacher: req.user.id
+    });
+    if (!course) throw createError.Forbidden();
+
+    const assignments = await Assignment.find({ lesson: lessonId })
+      .sort('-createdAt');
+
+    res.json({
+      success: true,
+      count: assignments.length,
+      data: assignments
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get single assignment with submissions
+const getAssignmentWithSubmissions = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+
+    const assignment = await Assignment.findOne({
+      _id: assignmentId,
+      createdBy: req.user.id
+    })
+    .populate({
+      path: 'submissions.student',
+      select: 'username email profilePicture'
+    })
+    .populate('lesson', 'title');
+
+    if (!assignment) throw createError.NotFound('Assignment not found');
+
+    res.json({
+      success: true,
+      data: assignment
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Get single submission details
+const getSubmissionDetails = async (req, res, next) => {
+  try {
+    const { assignmentId, submissionId } = req.params;
+
+    const assignment = await Assignment.findOne({
+      _id: assignmentId,
+      createdBy: req.user.id
+    })
+    .populate({
+      path: 'submissions.student',
+      select: 'username email profilePicture'
+    });
+
+    if (!assignment) throw createError.NotFound('Assignment not found');
+
+    const submission = assignment.submissions.id(submissionId);
+    if (!submission) throw createError.NotFound('Submission not found');
+
+    res.json({
+      success: true,
+      data: {
+        assignment: {
+          title: assignment.title,
+          points: assignment.points,
+          dueDate: assignment.dueDate
+        },
+        submission
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 module.exports = {
   createCourse,
   getTeacherCourses,
@@ -868,5 +954,9 @@ module.exports = {
   deleteQuiz,
   getAssignmentsByCourse,
   getQuizzesByCourse,
-  getQuizSubmission
+  getQuizSubmission,
+  getAssignmentsByLesson,
+  getAssignmentWithSubmissions,
+  getSubmissionDetails
+
 };

@@ -2,6 +2,8 @@ const Course = require('../models/Courses');
 const User = require('../models/User');
 const { createError } = require('http-errors');
 const Quiz = require('../models/Quiz');
+const Assignment = require('../models/Assignment');
+
 // Apply for course enrollment
 const applyForCourse = async (req, res, next) => {
   try {
@@ -112,79 +114,6 @@ const getCourseDetails = async (req, res, next) => {
     res.json({
       success: true,
       data: course
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-const submitAssignment = async (req, res, next) => {
-  try {
-    const { assignmentId } = req.params;
-    
-    const assignment = await Assignment.findById(assignmentId)
-      .populate('course', 'enrolledStudents');
-    if (!assignment) throw createError.NotFound('Assignment not found');
-
-    // Check if student is enrolled in the course
-    const isEnrolled = assignment.course.enrolledStudents.some(
-      student => student.student.toString() === req.user.id
-    );
-    if (!isEnrolled) throw createError.Forbidden();
-
-    // Check if already submitted
-    const existingSubmission = assignment.submissions.find(
-      sub => sub.student.toString() === req.user.id
-    );
-    if (existingSubmission) throw createError.Conflict('Already submitted');
-
-    const files = req.files?.map(file => ({
-      path: file.path,
-      originalName: file.originalname
-    })) || [];
-
-    assignment.submissions.push({
-      student: req.user.id,
-      files
-    });
-
-    await assignment.save();
-
-    res.status(201).json({ 
-      success: true, 
-      data: assignment.submissions[assignment.submissions.length - 1] 
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-const getAssignment = async (req, res, next) => {
-  try {
-    const { assignmentId } = req.params;
-    
-    const assignment = await Assignment.findById(assignmentId)
-      .populate('course', 'enrolledStudents')
-      .populate('createdBy', 'username profilePicture');
-
-    if (!assignment) throw createError.NotFound('Assignment not found');
-
-    // Check if student is enrolled in the course
-    const isEnrolled = assignment.course.enrolledStudents.some(
-      student => student.student.toString() === req.user.id
-    );
-    if (!isEnrolled) throw createError.Forbidden();
-
-    // Get student's submission if exists
-    const submission = assignment.submissions.find(
-      sub => sub.student.toString() === req.user.id
-    );
-
-    res.json({ 
-      success: true, 
-      data: {
-        assignment,
-        submission
-      }
     });
   } catch (error) {
     next(error);
@@ -377,10 +306,142 @@ const getQuizzesByLesson = async (req, res, next) => {
     next(error);
   }
 };
+
+const getAssignmentsByLesson = async (req, res, next) => {
+  try {
+    const { lessonId } = req.params;
+    
+    const lesson = await Lesson.findById(lessonId).populate('course');
+    if (!lesson) throw createError.NotFound('Lesson not found');
+    
+    // Check if student is enrolled
+    const isEnrolled = lesson.course.enrolledStudents.some(
+      student => student.student.toString() === req.user.id
+    );
+    if (!isEnrolled) throw createError.Forbidden();
+
+    const assignments = await Assignment.find({ 
+      lesson: lessonId,
+      isActive: true 
+    })
+    .select('title description dueDate points')
+    .sort('-createdAt');
+
+    // Add submission status for each assignment
+    const assignmentsWithStatus = await Promise.all(
+      assignments.map(async assignment => {
+        const submission = await Assignment.findOne(
+          { 
+            _id: assignment._id,
+            'submissions.student': req.user.id 
+          },
+          { 'submissions.$': 1 }
+        );
+        
+        return {
+          ...assignment._doc,
+          submissionStatus: submission ? 'submitted' : 'pending',
+          grade: submission?.submissions[0]?.grade || null
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      count: assignmentsWithStatus.length,
+      data: assignmentsWithStatus
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Update submitAssignment function
+const submitAssignment = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+    const { task } = req.body; // Get task from request body
+    
+    const assignment = await Assignment.findById(assignmentId)
+      .populate('course', 'enrolledStudents');
+    if (!assignment) throw createError.NotFound('Assignment not found');
+
+    // Check if student is enrolled in the course
+    const isEnrolled = assignment.course.enrolledStudents.some(
+      student => student.student.toString() === req.user.id
+    );
+    if (!isEnrolled) throw createError.Forbidden();
+
+    // Check if already submitted
+    const existingSubmission = assignment.submissions.find(
+      sub => sub.student.toString() === req.user.id
+    );
+    if (existingSubmission) throw createError.Conflict('Already submitted');
+
+    // Add submission
+    assignment.submissions.push({
+      student: req.user.id,
+      task, // Save the rich text content
+      submittedAt: new Date()
+    });
+
+    await assignment.save();
+
+    res.status(201).json({ 
+      success: true, 
+      data: assignment.submissions[assignment.submissions.length - 1] 
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Update getAssignment function
+const getAssignment = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+    
+    const assignment = await Assignment.findById(assignmentId)
+      .populate('course', 'enrolledStudents')
+      .populate('createdBy', 'username profilePicture');
+
+    if (!assignment) throw createError.NotFound('Assignment not found');
+
+    // Check if student is enrolled in the course
+    const isEnrolled = assignment.course.enrolledStudents.some(
+      student => student.student.toString() === req.user.id
+    );
+    if (!isEnrolled) throw createError.Forbidden();
+
+    // Get student's submission if exists
+    const submission = assignment.submissions.find(
+      sub => sub.student.toString() === req.user.id
+    );
+
+    res.json({ 
+      success: true, 
+      data: {
+        assignment: {
+          _id: assignment._id,
+          title: assignment.title,
+          description: assignment.description,
+          instructions: assignment.instructions,
+          dueDate: assignment.dueDate,
+          points: assignment.points,
+          createdAt: assignment.createdAt
+        },
+        submission
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 module.exports = {
   applyForCourse,
   getMyCourses,
   getCourseDetails,
+  getAssignmentsByLesson,
   submitAssignment,
   getAssignment,
   takeQuiz,

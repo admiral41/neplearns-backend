@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 const { uploadCourseImage, uploadAttachment, } = require('../middleware/uploadMiddleware');
-const { createCourse, getTeacherCourses, getTeacherCourse, deleteCourse, getQuizSubmission, getAssignmentsByCourse, getQuizzesByCourse, updateCourse, getAllCourses, getEnrollmentRequests, processEnrollmentRequest, getEnrolledStudents, createAssignment, updateAssignment, gradeAssignment, getAssignmentSubmissions, deleteAssignment, createQuiz, updateQuiz, getQuizResults, deleteQuiz } = require('../controllers/teacherController');
+const { createCourse, getTeacherCourses, getTeacherCourse, deleteCourse, getQuizSubmission,getAssignmentsByLesson,getAssignmentWithSubmissions,getSubmissionDetails, getAssignmentsByCourse, getQuizzesByCourse, updateCourse, getAllCourses, getEnrollmentRequests, processEnrollmentRequest, getEnrolledStudents, createAssignment, updateAssignment, gradeAssignment, getAssignmentSubmissions, deleteAssignment, createQuiz, updateQuiz, getQuizResults, deleteQuiz } = require('../controllers/teacherController');
 
 // Teacher-specific routes
 router.use(protect);
@@ -49,12 +49,10 @@ router.get(
 // Assignment routes
 router.post(
   '/lessons/:lessonId/assignments',
-  uploadAttachment.array('attachments'),
   createAssignment
 );
-router.put(
+router.patch(
   '/assignments/:assignmentId',
-  uploadAttachment.array('attachments'),
   updateAssignment
 );
 router.patch('/assignments/:assignmentId/submissions/:submissionId/grade', gradeAssignment);
@@ -70,4 +68,11 @@ router.get('/quizzes/:quizId/results', getQuizResults);
 router.get('/quizzes/:quizId/results/:submissionId', getQuizSubmission);
 
 router.delete('/quizzes/:quizId', deleteQuiz);
+
+
+router.get('/lessons/:lessonId/assignments', getAssignmentsByLesson);
+router.get('/assignments/:assignmentId', getAssignmentWithSubmissions);
+router.get('/assignments/:assignmentId/submissions/:submissionId', getSubmissionDetails);
+// new routes
+
 module.exports = router;

@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const assignmentSchema = new mongoose.Schema({
   title: { type: String, required: true },
   description: { type: String },
-  instructions: { type: String, required: true },
+  instructions: { type: String, required: true }, 
   lesson: { type: mongoose.Schema.Types.ObjectId, ref: 'Lesson', required: true },
   course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
   dueDate: { type: Date, required: true },
@@ -11,10 +11,7 @@ const assignmentSchema = new mongoose.Schema({
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   submissions: [{
     student: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    files: [{
-      path: { type: String, required: true },
-      originalName: { type: String, required: true }
-    }],
+    task: { type: String },
     submittedAt: { type: Date, default: Date.now },
     grade: { type: Number, min: 0 },
     feedback: { type: String },
