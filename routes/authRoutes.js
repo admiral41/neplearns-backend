@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { login, registerTeacher, approveTeacher, registerStudent,getAdminStats, checkAuth, getAllTeachers, getStudents,forgotPassword,resetPassword} = require('../controllers/authController');
+const { login, registerTeacher, approveTeacher, updateProfile, changePassword, registerStudent, getAdminStats, checkAuth, getAllTeachers, getStudents, forgotPassword, resetPassword } = require('../controllers/authController');
 const { protect, restrictTo } = require('../middleware/authMiddleware');
 
 router.post('/login', login);
@@ -22,5 +22,10 @@ router.get('/teachers', protect,
   restrictTo('Admin'), getAllTeachers
 );
 router.get('/stats', getAdminStats);
+// Add these new routes
+router.patch('/profile', protect, updateProfile)
 
+
+router.route('/changepassword')
+  .put(protect, changePassword);
 module.exports = router;

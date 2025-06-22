@@ -4,6 +4,7 @@ const createError = require('http-errors');
 const Course = require('../models/Courses');
 const sendEmail = require('../middleware/sendEmail');
 const crypto = require('crypto');
+const asyncHandler = require('express-async-handler');
 
 const login = async (req, res, next) => {
   try {
@@ -31,7 +32,7 @@ const login = async (req, res, next) => {
 const registerTeacher = async (req, res, next) => {
   try {
     const { username, email, password } = req.body;
-    
+
     const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
       throw createError.Conflict('User already exists');
@@ -116,8 +117,8 @@ const getStudents = async (req, res, next) => {
       User.countDocuments({ role: 'Student' })
     ]);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       data: students,
       pagination: {
         currentPage: page,
@@ -196,7 +197,7 @@ const forgotPassword = async (req, res, next) => {
     // Always return success to prevent email enumeration
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(200).json({ 
+      return res.status(200).json({
         success: true,
         message: 'If an account exists with this email, a reset link has been sent'
       });
@@ -223,7 +224,7 @@ const forgotPassword = async (req, res, next) => {
       // Don't reveal email failure to user
     }
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
       message: 'If an account exists with this email, a reset link has been sent'
     });
@@ -267,48 +268,83 @@ const resetPassword = async (req, res, next) => {
       console.error('Confirmation email failed:', err);
     }
 
-    res.status(200).json({ 
-      success: true, 
-      message: 'Password updated successfully' 
+    res.status(200).json({
+      success: true,
+      message: 'Password updated successfully'
     });
   } catch (err) {
     next(err);
   }
 };
 
-const changePassword = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user.id).select('+password');
+// @desc    Update user profile
+// @route   PATCH /api/auth/profile
+// @access  Private
+const updateProfile = asyncHandler(async (req, res) => {
+  const { username } = req.body;
+  const userId = req.user.id;
 
-    if (!(await user.matchPassword(req.body.currentPassword))) {
-      return next(createError.Unauthorized('Current password is incorrect'));
-    }
-
-    user.password = req.body.newPassword;
-    await user.save();
-
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: 'Password Changed Successfully',
-        template: 'passwordChanged',
-        data: {
-          name: user.username || 'User'
-        }
-      });
-    } catch (err) {
-      console.error('Confirmation email failed:', err);
-    }
-
-    res.status(200).json({ 
-      success: true, 
-      message: 'Password changed successfully' 
-    });
-  } catch (err) {
-    next(err);
+  // Validate username
+  if (!username || username.length < 3) {
+    throw createError.BadRequest('Username must be at least 3 characters');
   }
-};
 
+  // Check if username is already taken
+  const existingUser = await User.findOne({ username });
+  if (existingUser && existingUser._id.toString() !== userId) {
+    throw createError.Conflict('Username is already taken');
+  }
+
+  // Update user
+  const updatedUser = await User.findByIdAndUpdate(
+    userId,
+    { username },
+    {
+      new: true,
+      runValidators: true,
+      select: '-password -resetPasswordToken -resetPasswordExpire'
+    }
+  );
+
+  res.json({
+    success: true,
+    message: 'Profile updated successfully',
+    user: updatedUser
+  });
+});
+
+// @desc    Change user password
+// @route   PUT /api/auth/changepassword
+// @access  Private
+const changePassword = asyncHandler(async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.user.id;
+
+  // Validate password length
+  if (!newPassword || newPassword.length < 6) {
+    throw createError.BadRequest('Password must be at least 6 characters');
+  }
+
+  // Get user with password
+  const user = await User.findById(userId).select('+password');
+  if (!user) {
+    throw createError.NotFound('User not found');
+  }
+
+  // Verify current password
+  if (!(await user.matchPassword(currentPassword))) {
+    throw createError.Unauthorized('Current password is incorrect');
+  }
+
+  // Update password
+  user.password = newPassword;
+  await user.save();
+
+  res.json({
+    success: true,
+    message: 'Password changed successfully'
+  });
+});
 module.exports = {
   login,
   registerTeacher,
@@ -320,5 +356,6 @@ module.exports = {
   getAdminStats,
   forgotPassword,
   resetPassword,
+  updateProfile,
   changePassword
 };
