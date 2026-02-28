@@ -1,3 +1,8 @@
+
+const User = require("../models/user.model");
+const SuccessStory = require("../models/successStory.model");
+const bcrypt = require("bcryptjs");
+
 const testimonialData = [
   {
     user: {
@@ -108,3 +113,69 @@ const testimonialData = [
     },
   },
 ];
+
+async function seedTestimonials() {
+  try {
+    // Check if testimonials already exist
+    const existingCount = await SuccessStory.countDocuments();
+    if (existingCount >= 6) {
+      console.log(`✔ Testimonials already seeded (${existingCount} found).`);
+      return;
+    }
+
+    // Get SUPERADMIN for createdBy field
+    const superAdmin = await User.findOne({ roles: "SUPERADMIN" });
+    if (!superAdmin) {
+      console.log("⚠ SUPERADMIN not found. Skipping testimonial seeding.");
+      return;
+    }
+
+    // Create dummy password hash for testimonial users
+    const salt = await bcrypt.genSalt(10);
+    const hash = await bcrypt.hash("TestimonialUser@123", salt);
+
+    let seededCount = 0;
+
+    for (const data of testimonialData) {
+      // Check if user already exists
+      let user = await User.findOne({ email: data.user.email });
+
+      if (!user) {
+        // Create testimonial user
+        user = new User({
+          ...data.user,
+          roles: ["LEARNER"],
+          isVerified: true,
+          verificationCode: 0,
+          salt,
+          hash,
+        });
+        await user.save();
+      }
+
+      // Check if story already exists for this user
+      const existingStory = await SuccessStory.findOne({ user: user._id });
+      if (!existingStory) {
+        // Create success story
+        const story = new SuccessStory({
+          user: user._id,
+          ...data.story,
+          isActive: true,
+          createdBy: superAdmin._id,
+        });
+        await story.save();
+        seededCount++;
+      }
+    }
+
+    if (seededCount > 0) {
+      console.log(`✔ Seeded ${seededCount} testimonials successfully.`);
+    } else {
+      console.log("✔ All testimonials already exist.");
+    }
+  } catch (error) {
+    console.error("Error seeding testimonials:", error.message);
+  }
+}
+
+module.exports = seedTestimonials;
