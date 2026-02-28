@@ -1,5 +1,3 @@
-const Testimonial = require("../models/Testimonial"); // adjust path if needed
-
 const testimonialData = [
   {
     user: {
@@ -110,22 +108,3 @@ const testimonialData = [
     },
   },
 ];
-
-const seedTestimonials = async () => {
-  try {
-    const existingCount = await Testimonial.countDocuments();
-
-    if (existingCount > 0) {
-      console.log("⚠️ Testimonials already exist. Skipping seed.");
-      return;
-    }
-
-    await Testimonial.insertMany(testimonialData);
-
-    console.log("Testimonials seeded successfully.");
-  } catch (error) {
-    console.error("Error seeding testimonials:", error.message);
-  }
-};
-
-module.exports = seedTestimonials;
